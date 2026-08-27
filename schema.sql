@@ -61,21 +61,54 @@ begin
 end $$;
 
 -- ------------------------------------------------------------
--- Access. This tool has no login: anyone with the page (and the
--- public anon key baked into it) can read and edit. For an internal
--- team behind a Teams channel that is usually fine. The policies
--- below make that explicit.
+-- Access.
 --
--- To tighten later, replace `using (true)` / `with check (true)`
--- with rules that require an authenticated user, and add Supabase
--- Auth or Microsoft sign-in to the page.
+-- config & members (the team roster/setup): anyone with the link can
+-- read, but only the admin account(s) listed below can write. This is
+-- real server-side enforcement — the app's UI also hides the Setup
+-- button from everyone else, but this is what actually stops writes
+-- even if someone bypasses the UI.
+--
+-- leaves & overrides (booking your own leave / swapping a week): left
+-- open to everyone, same as before — no login needed to use those.
+--
+-- To add more admins, add more emails to the `in (...)` list below.
 -- ------------------------------------------------------------
 alter table config    enable row level security;
 alter table members   enable row level security;
 alter table leaves    enable row level security;
 alter table overrides enable row level security;
 
-create policy "anon read/write config"    on config    for all using (true) with check (true);
-create policy "anon read/write members"   on members   for all using (true) with check (true);
+drop policy if exists "anon read/write config"  on config;
+drop policy if exists "anon read/write members" on members;
+drop policy if exists "config read"          on config;
+drop policy if exists "config admin insert"  on config;
+drop policy if exists "config admin update"  on config;
+drop policy if exists "config admin delete"  on config;
+drop policy if exists "members read"         on members;
+drop policy if exists "members admin insert" on members;
+drop policy if exists "members admin update" on members;
+drop policy if exists "members admin delete" on members;
+
+create policy "config read" on config for select using (true);
+create policy "config admin insert" on config for insert
+  with check ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'));
+create policy "config admin update" on config for update
+  using ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'))
+  with check ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'));
+create policy "config admin delete" on config for delete
+  using ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'));
+
+create policy "members read" on members for select using (true);
+create policy "members admin insert" on members for insert
+  with check ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'));
+create policy "members admin update" on members for update
+  using ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'))
+  with check ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'));
+create policy "members admin delete" on members for delete
+  using ((auth.jwt() ->> 'email') in ('simone.terry@radixtrie.com'));
+
+drop policy if exists "anon read/write leaves"    on leaves;
+drop policy if exists "anon read/write overrides" on overrides;
 create policy "anon read/write leaves"    on leaves    for all using (true) with check (true);
 create policy "anon read/write overrides" on overrides for all using (true) with check (true);

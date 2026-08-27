@@ -273,7 +273,7 @@ if (typeof module !== 'undefined' && module.exports) {
 /* Standby Roster — app layer (DOM, storage adapters, rendering).
    Depends on the pure functions from domain.js (loaded before this). */
 
-const APP = { store:null, mode:'local', state:null, identity:null };
+const APP = { store:null, mode:'local', state:null, identity:null, session:null };
 const IDKEY = 'standby_identity_v1';
 
 function uid(){ return 'x' + Math.random().toString(36).slice(2,9); }
@@ -484,7 +484,12 @@ function render(){
           <div class="sub">${esc(config.team)} · every ${cad===7?'week':cad+' days'} ${modeTag}</div></div>
         <div class="topbar-actions">
           <select class="select-inline" id="who" aria-label="Who are you">${idOptions}</select>
-          <button class="btn btn-ghost" data-action="setup">Setup</button>
+          ${APP.mode==='shared' ? (
+            APP.session
+              ? `<button class="btn btn-ghost" data-action="setup">Setup</button>
+                 <button class="btn btn-ghost btn-sm" data-action="signout" title="${esc(APP.session.user.email)}">Sign out</button>`
+              : `<button class="btn btn-ghost" data-action="signin">Sign in</button>`
+          ) : `<button class="btn btn-ghost" data-action="setup">Setup</button>`}
         </div>
       </div>
       ${nowHtml}
@@ -503,6 +508,19 @@ function openModal(html){ modal().querySelector('.dialog').innerHTML=html; modal
 function closeModal(){ modal().hidden=true; }
 
 function memberOptions(sel){ return APP.state.members.map(m=>`<option value="${m.id}"${m.id===sel?' selected':''}>${esc(m.name)}</option>`).join(''); }
+
+function openLogin(){
+  openModal(`
+    <h2>Sign in</h2>
+    <p class="hint">Editing the team list and rotation setup is restricted to the roster admin.</p>
+    <div class="field"><label>Email</label><input type="email" id="l-email" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input type="password" id="l-pass" autocomplete="current-password"></div>
+    <div id="l-error" style="color:var(--danger);font-size:13px;display:none;margin-top:-6px;margin-bottom:12px"></div>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" data-m="close">Cancel</button>
+      <button class="btn btn-primary" data-m="do-signin">Sign in</button>
+    </div>`);
+}
 
 function openLeave(memberId){
   const who = memberId || APP.identity || (APP.state.members[0]&&APP.state.members[0].id) || '';
@@ -611,12 +629,20 @@ document.addEventListener('click', async (e)=>{
     if(act==='leave') openLeave();
     if(act==='cover') openCover(a.dataset.period);
     if(act==='del-leave'){ if(confirm('Remove this leave?')) await APP.store.deleteLeave(a.dataset.id); }
+    if(act==='signin') openLogin();
+    if(act==='signout'){ await APP.store.sb.auth.signOut(); }
     return;
   }
   const m=e.target.closest('[data-m]');
   if(!m) return;
   const cmd=m.dataset.m;
   if(cmd==='close') return closeModal();
+  if(cmd==='do-signin'){
+    const errEl=document.getElementById('l-error');
+    const { error } = await APP.store.sb.auth.signInWithPassword({ email: val('l-email').trim(), password: val('l-pass') });
+    if(error){ errEl.textContent = error.message; errEl.style.display='block'; return; }
+    closeModal();
+  }
   if(cmd==='save-leave'){
     const rec={ id:uid(), memberId:val('m-who'), start:val('m-from'), end:val('m-to'), note:val('m-note').trim(), by:APP.identity?nameOf(APP.identity):'someone' };
     if(rec.end<rec.start){ alert('The “to” date is before the “from” date.'); return; }
@@ -656,6 +682,11 @@ async function init(){
     }
   }
   if(!APP.store){ const s=new LocalStore(); APP.state=await s.load(); APP.store=s; APP.mode='local'; }
+  if(APP.mode==='shared'){
+    const { data:{ session } } = await APP.store.sb.auth.getSession();
+    APP.session = session;
+    APP.store.sb.auth.onAuthStateChange((_event, session)=>{ APP.session=session; render(); });
+  }
   // keep identity valid
   if(APP.identity && !(APP.state.members||[]).some(m=>m.id===APP.identity)) APP.identity=null;
   APP.store.subscribe(async ()=>{ try{ APP.state=await APP.store.load(); render(); }catch(e){ console.error(e); } });
